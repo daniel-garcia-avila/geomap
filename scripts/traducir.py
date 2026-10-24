@@ -54,3 +54,30 @@ def lugar_gdelt(nombre_completo):
     if len(partes) == 1:
         return pais(partes[0])
     return f"{partes[0]}, {pais(partes[-1])}"
+
+
+# ---------- Traducción de textos libres (titulares) ----------
+# Usa el traductor web de Google en su modo gratuito (sin clave). No es una API oficial:
+# si algún día deja de responder, la web muestra el titular original y se reintenta más tarde.
+
+import urllib.parse
+import urllib.request
+
+_TRADUCTOR = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=es&dt=t&q="
+
+
+def a_espanol(texto, timeout=8):
+    """Devuelve el texto en español, o None si no se ha podido traducir (para reintentarlo después)."""
+    if not texto:
+        return None
+    req = urllib.request.Request(_TRADUCTOR + urllib.parse.quote(texto), headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            datos = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+    try:
+        traduccion = "".join(seg[0] for seg in datos[0] if seg and seg[0]).strip()
+    except (TypeError, IndexError):
+        return None
+    return traduccion or None

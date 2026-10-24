@@ -26,7 +26,7 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from traducir import lugar_gdelt
+from traducir import a_espanol, lugar_gdelt
 
 RAIZ = Path(__file__).resolve().parent.parent
 ESTADO = RAIZ / "data" / "estado_gdelt.json"
@@ -38,6 +38,7 @@ MAX_ARCHIVOS_POR_EJECUCION = 24   # 6 horas de datos; si se acumula retraso, se 
 HORAS_INICIALES = 6               # la primera vez, se cargan las últimas 6 h (luego el histórico crece solo)
 VENTANA_HORAS = 72
 MAX_TITULARES_POR_EJECUCION = 40  # titulares reales que se leen de las noticias en cada ejecución
+MAX_TRADUCCIONES_POR_EJECUCION = 80  # cada titular se traduce una sola vez y se guarda
 MAX_EVENTOS = 700                 # tope de eventos GDELT en el mapa
 
 # Columnas del CSV de eventos de GDELT 2.0 (61 columnas)
@@ -228,8 +229,9 @@ def a_evento(clave, g):
     lugar = lugar_gdelt(g["nombre"])
     actores = [a.title() for a in list(g["actores"])[:3]]
     resumen = []
-    if g.get("titular"):
-        resumen.append(f"Titular: «{g['titular']}»")
+    titular = g.get("titular_es") or g.get("titular")
+    if titular:
+        resumen.append(f"Titular: «{titular}»")
     if actores:
         resumen.append("Actores: " + ", ".join(actores) + ".")
     resumen.append(f"Detectado en {g['articulos']} artículos de prensa.")
@@ -292,6 +294,21 @@ def recolectar_gdelt():
         if "titular" not in g and g.get("url"):
             g["titular"] = leer_titular(g["url"])
             leidos += 1
+
+    # Traducción al español de los titulares que aún no la tienen
+    traducidos, fallos = 0, 0
+    for _, g in visibles:
+        if traducidos >= MAX_TRADUCCIONES_POR_EJECUCION or fallos >= 3:
+            break  # si el traductor falla 3 veces seguidas, se deja para la próxima ejecución
+        if g.get("titular") and "titular_es" not in g:
+            es = a_espanol(g["titular"])
+            if es:
+                g["titular_es"] = es
+                traducidos += 1
+                fallos = 0
+            else:
+                fallos += 1
+    print(f"  GDELT: {leidos} titulares leídos, {traducidos} traducidos")
 
     guardar_estado(estado)
     return [a_evento(k, g) for k, g in visibles]
