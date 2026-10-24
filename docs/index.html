@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Radar Geopolítico</title>
+  <meta name="description" content="Mapa mundial de sucesos en tiempo casi real: terremotos, desastres naturales y eventos geopolíticos.">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Condensed:wght@600;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <h1>Radar Geopolítico</h1>
+        <span class="live"><i></i>EN VIVO</span>
+      </div>
+      <div class="hstats">
+        <div><b id="s-total">–</b>eventos</div>
+        <div><b id="s-crit">–</b>graves</div>
+        <div><b id="s-upd">–</b>actualizado</div>
+      </div>
+    </header>
+
+    <aside>
+      <div class="search">
+        <input id="q" type="search" placeholder="Buscar lugar o tipo…" aria-label="Buscar eventos">
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="window">
+        <label for="win">Últimas <b id="win-label">72 h</b></label>
+        <input type="range" id="win" min="6" max="72" step="6" value="72">
+      </div>
+      <div class="feedhead"><span>Última hora</span><span id="feedcount"></span></div>
+      <div class="feed" id="feed"><div class="empty">Cargando eventos…</div></div>
+      <footer class="sources">Fuentes: <a href="https://earthquake.usgs.gov" target="_blank" rel="noopener">USGS</a> · <a href="https://www.gdacs.org" target="_blank" rel="noopener">GDACS</a></footer>
+    </aside>
+
+    <main id="map" aria-label="Mapa mundial de sucesos"></main>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
