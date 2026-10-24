@@ -1,9 +1,8 @@
 """
 Recolector de eventos para Radar Geopolítico.
 
-Descarga terremotos (USGS) y desastres naturales (GDACS), los normaliza
-a un formato común y los guarda en docs/data/eventos.json, conservando
-los eventos de las últimas 72 horas.
+Descarga terremotos (USGS), desastres naturales (GDACS) y sucesos geopolíticos
+(GDELT), los normaliza a un formato común y los guarda en docs/data/eventos.json.
 
 Solo usa la biblioteca estándar de Python: no hay que instalar nada.
 """
@@ -14,6 +13,9 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from gdelt import recolectar_gdelt
+from traducir import lista_paises, lugar_usgs
+
 RAIZ = Path(__file__).resolve().parent.parent
 SALIDA = RAIZ / "docs" / "data" / "eventos.json"
 VENTANA_HORAS = 72
@@ -23,13 +25,14 @@ UA = {"User-Agent": "RadarGeopolitico/1.0 (+https://github.com)"}
 USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson"
 GDACS_URL = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/EVENTS4APP"
 
-TIPOS_GDACS = {
-    "TC": "Ciclón tropical",
-    "FL": "Inundación",
-    "VO": "Erupción volcánica",
-    "DR": "Sequía",
-    "WF": "Incendio forestal",
+TIPOS_GDACS = {  # (singular, plural)
+    "TC": ("Ciclón tropical", "Ciclones tropicales"),
+    "FL": ("Inundación", "Inundaciones"),
+    "VO": ("Erupción volcánica", "Erupciones volcánicas"),
+    "DR": ("Sequía", "Sequías"),
+    "WF": ("Incendio forestal", "Incendios forestales"),
 }
+NOMBRE_ALERTA = {1: "verde", 2: "naranja", 3: "roja"}
 ALERTA_GDACS = {"green": 1, "orange": 2, "red": 3}
 
 
@@ -92,7 +95,7 @@ def recolectar_usgs():
             "fecha": iso(fecha),
             "lat": round(lat, 4),
             "lon": round(lon, 4),
-            "lugar": p.get("place") or "Ubicación desconocida",
+            "lugar": lugar_usgs(p.get("place")),
             "titulo": f"Terremoto M{mag:.1f}".replace(".", ","),
             "resumen": resumen,
             "fuente": "USGS",
@@ -103,8 +106,13 @@ def recolectar_usgs():
 
 
 def recolectar_gdacs():
+    """
+    GDACS envía cada foco de incendio por separado, así que los incendios del mismo país
+    se agrupan en un solo evento situado en el foco más grave. El resto de desastres
+    (ciclones, inundaciones, volcanes, sequías) se mantienen uno a uno.
+    """
     datos = descargar_json(GDACS_URL)
-    eventos = []
+    eventos, incendios = [], {}
     for f in datos.get("features", []):
         p = f.get("properties", {})
         tipo = p.get("eventtype")
@@ -117,22 +125,55 @@ def recolectar_gdacs():
             fecha = datetime.fromisoformat(p.get("fromdate", "").replace("Z", "")).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
-        nombre = p.get("name") or p.get("eventname") or TIPOS_GDACS[tipo]
         url = p.get("url")
         if isinstance(url, dict):
             url = url.get("report") or url.get("details")
+        grav = ALERTA_GDACS.get(str(p.get("alertlevel", "")).lower(), 1)
+        paises = lista_paises(p.get("country") or "") or "Ubicación desconocida"
+        singular, plural = TIPOS_GDACS[tipo]
+
+        if tipo == "WF":
+            g = incendios.setdefault(paises, {"n": 0, "grav": 0})
+            g["n"] += 1
+            if grav > g["grav"] or (grav == g["grav"] and iso(fecha) > g["fecha"]):
+                g.update(grav=grav, fecha=iso(fecha), pos=pos, url=url, id=p.get("eventid"))
+            continue
+
+        nombre = (p.get("eventname") or "").strip()
+        titulo = f"{singular} {nombre.title()}" if tipo in ("TC", "VO") and nombre else f"{singular} en {paises}"
+        resumen = f"Nivel de alerta GDACS: {NOMBRE_ALERTA[grav]}."
+        sev = (p.get("severitydata") or {}).get("severitytext")
+        if sev:
+            resumen += f" Datos técnicos: {sev}."
         eventos.append({
             "id": f"gdacs-{tipo}-{p.get('eventid')}",
             "tipo": "desastre",
-            "gravedad": ALERTA_GDACS.get(str(p.get("alertlevel", "")).lower(), 1),
+            "gravedad": grav,
             "fecha": iso(fecha),
             "lat": round(pos[0], 4),
             "lon": round(pos[1], 4),
-            "lugar": p.get("country") or "Ubicación desconocida",
-            "titulo": f"{TIPOS_GDACS[tipo]}: {nombre}",
-            "resumen": p.get("description") or "",
+            "lugar": paises,
+            "titulo": titulo,
+            "resumen": resumen,
             "fuente": "GDACS",
             "url": url,
+            "verificacion": "ok",
+        })
+
+    for paises, g in incendios.items():
+        focos = f"{g['n']} focos activos" if g["n"] > 1 else "1 foco activo"
+        eventos.append({
+            "id": f"gdacs-WF-{g['id']}",
+            "tipo": "desastre",
+            "gravedad": g["grav"],
+            "fecha": g["fecha"],
+            "lat": round(g["pos"][0], 4),
+            "lon": round(g["pos"][1], 4),
+            "lugar": paises,
+            "titulo": ("Incendios forestales" if g["n"] > 1 else "Incendio forestal") + f" en {paises}",
+            "resumen": f"{focos} según GDACS. El punto marca el foco más grave. Nivel de alerta máximo: {NOMBRE_ALERTA[g['grav']]}.",
+            "fuente": "GDACS",
+            "url": g["url"],
             "verificacion": "ok",
         })
     return eventos
@@ -155,7 +196,7 @@ def main():
     eventos = []
     fuentes_ok = []
 
-    for nombre, funcion in (("USGS", recolectar_usgs), ("GDACS", recolectar_gdacs)):
+    for nombre, funcion in (("USGS", recolectar_usgs), ("GDACS", recolectar_gdacs), ("GDELT", recolectar_gdelt)):
         prefijo = nombre.lower() + "-"
         try:
             nuevos = funcion()
@@ -166,7 +207,7 @@ def main():
             eventos += [e for e in existentes if e["id"].startswith(prefijo)]
             print(f"{nombre}: error -> {err}. Se mantienen los datos anteriores.", file=sys.stderr)
 
-    # Terremotos: solo los de las últimas 72 h.
+    # Terremotos y sucesos GDELT: solo los de las últimas 72 h.
     # Desastres: GDACS solo lista los activos, así que se muestran mientras sigan en su lista
     # (una sequía o inundación puede durar semanas).
     eventos = [e for e in eventos if e["tipo"] == "desastre" or e["fecha"] >= limite]
@@ -182,7 +223,7 @@ def main():
         "actualizado": iso(ahora),
         "fuentes": fuentes_ok,
         "eventos": eventos,
-    }, ensure_ascii=False, indent=1), "utf-8")
+    }, ensure_ascii=False, separators=(",", ":")), "utf-8")
     print(f"Guardados {len(eventos)} eventos en {SALIDA.name}")
 
 

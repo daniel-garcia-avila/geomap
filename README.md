@@ -6,7 +6,11 @@ Mapa mundial de sucesos en tiempo casi real. Funciona **sin servidor, sin base d
 - **GitHub Pages** publica la carpeta `docs/` como web.
 - **MapLibre + OpenFreeMap** dibujan el mapa, sin clave de API.
 
-Fase 1: terremotos (USGS) y desastres naturales activos (GDACS).
+Fuentes:
+
+- **Terremotos**: USGS (Servicio Geológico de EE. UU.), magnitud 4,5 o más. Dato oficial.
+- **Desastres naturales**: GDACS (ONU y Comisión Europea): ciclones, inundaciones, volcanes, sequías e incendios. Dato oficial.
+- **Conflictos, protestas, política y crisis humanitarias**: GDELT, que analiza noticias de todo el mundo cada 15 minutos. Es extracción automática de prensa, sin verificación humana: la web lo indica en cada evento.
 
 ## Puesta en marcha (unos 10 minutos)
 
@@ -32,7 +36,10 @@ Abre http://localhost:8000
 
 ```
 .github/workflows/actualizar-datos.yml   Tarea programada cada 15 min
-scripts/recolectar.py                    Descarga y normaliza los eventos (solo librería estándar)
+scripts/recolectar.py                    Programa principal: USGS, GDACS y unión de todo (solo librería estándar)
+scripts/gdelt.py                         Descarga, filtra y agrupa los sucesos de GDELT
+scripts/traducir.py, paises_es.json      Traducción de países y ubicaciones al español
+data/estado_gdelt.json                   Estado interno de GDELT (grupos que aún no llegan al mínimo)
 docs/index.html, app.js, style.css       La web
 docs/data/eventos.json                   Datos generados (no editar a mano)
 ```
@@ -55,7 +62,17 @@ docs/data/eventos.json                   Datos generados (no editar a mano)
 }
 ```
 
-Para añadir una fuente nueva (GDELT en la fase 2) basta con escribir otra función `recolectar_xxx()` que devuelva eventos con este formato y añadirla a la lista de `main()`.
+## Cómo se filtra GDELT
+
+GDELT detecta miles de sucesos cada hora y es muy ruidoso. El recolector:
+
+1. Usa solo los tipos que interesan (códigos CAMEO): combates, ataques, violencia masiva, protestas, amenazas, movilización militar, sanciones, represión, diplomacia y ayuda humanitaria.
+2. Descarta los sucesos situados solo a nivel de país.
+3. Agrupa los del mismo tipo, lugar y día en un único evento.
+4. Muestra solo los grupos con suficientes artículos detrás (el mínimo de cada tipo está en `CATEGORIAS`, en `scripts/gdelt.py`). Si ves demasiado ruido, sube esos números; si ves pocos eventos, bájalos.
+5. Lee el titular real de la noticia más difundida de cada grupo.
+
+Para añadir otra fuente basta con escribir otra función `recolectar_xxx()` que devuelva eventos con este formato y añadirla a la lista de `main()`.
 
 ## Limitaciones del plan gratuito
 

@@ -19,7 +19,16 @@ const TIPOS = {
   desastre:    { label: "Desastres naturales", color: "#c58cf0" },
   sismo:       { label: "Terremotos",          color: "#93d35a" },
 };
-const VERIF = { ok: "Verificado", dev: "En revisión", no: "Sin verificar" };
+// Qué significa la verificación depende de la fuente:
+// USGS y GDACS son organismos oficiales; GDELT se extrae automáticamente de la prensa.
+function verificacion(e) {
+  if (e.fuente === "GDELT") {
+    return e.verificacion === "dev"
+      ? `Muy difundido en prensa (${e.articulos} artículos), sin verificación oficial`
+      : `Extraído de prensa (${e.articulos} artículos), sin verificar`;
+  }
+  return e.verificacion === "ok" ? `Dato oficial (${e.fuente})` : `Dato oficial preliminar (${e.fuente})`;
+}
 
 const estado = { eventos: [], actualizado: null, tipos: new Set(Object.keys(TIPOS)), horas: 72, q: "", sel: null };
 let mapa, popup;
@@ -169,8 +178,9 @@ function seleccionar(id, volar) {
   if (e.resumen) cont.append(el("p", { textContent: e.resumen }));
   const meta = el("div", { className: "meta" },
     el("span", { textContent: `${new Date(e.fecha).toISOString().slice(0, 16).replace("T", " ")} UTC` }),
-    el("span", { textContent: VERIF[e.verificacion] || "" }));
-  if (e.url) meta.append(el("a", { href: e.url, target: "_blank", rel: "noopener", textContent: `Ver en ${e.fuente}` }));
+    el("span", { textContent: verificacion(e) }));
+  if (e.url) meta.append(el("a", { href: e.url, target: "_blank", rel: "noopener",
+    textContent: e.fuente === "GDELT" ? "Leer la noticia" : `Ver en ${e.fuente}` }));
   cont.append(meta);
 
   popup?.remove();
