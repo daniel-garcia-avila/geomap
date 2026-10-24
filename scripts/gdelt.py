@@ -39,11 +39,14 @@ HORAS_INICIALES = 6               # la primera vez, se cargan las últimas 6 h (
 VENTANA_HORAS = 72
 MAX_TITULARES_POR_EJECUCION = 40  # titulares reales que se leen de las noticias en cada ejecución
 MAX_TRADUCCIONES_POR_EJECUCION = 80  # cada titular se traduce una sola vez y se guarda
-MAX_EVENTOS = 700                 # tope de eventos GDELT en el mapa
+MAX_EVENTOS = 400                 # tope de eventos GDELT en el mapa (se quedan los más difundidos)
 
 # Columnas del CSV de eventos de GDELT 2.0 (61 columnas)
 C_ID, C_DIA = 0, 1
 C_ACTOR1, C_ACTOR2 = 6, 16
+C_PAIS1, C_PAIS2 = 7, 17            # país de cada actor
+C_GRUPO1, C_GRUPO2 = 8, 18          # grupo conocido (Hamás, ONU, OTAN…)
+C_ROL1, C_ROL2 = (12, 13, 14), (22, 23, 24)  # tipo de actor: GOV, MIL, REB, COP…
 C_CODIGO, C_ES_RAIZ = 26, 25
 C_ROOT = 28
 C_MENCIONES, C_FUENTES, C_ARTICULOS, C_TONO = 31, 32, 33, 34
@@ -51,21 +54,56 @@ C_GEO_TIPO, C_GEO_NOMBRE, C_GEO_PAIS = 51, 52, 53
 C_GEO_LAT, C_GEO_LON, C_GEO_ID = 56, 57, 58
 C_FECHA_ALTA, C_URL = 59, 60
 
-# Código CAMEO raíz -> (tipo en el mapa, gravedad base, nombre en español, mínimo de artículos para mostrarlo)
+# Código CAMEO raíz -> (tipo en el mapa, gravedad base, nombre en español, mínimo de artículos, actores exigidos)
+#
+# El mínimo de artículos está calibrado con datos reales: deja fuera aproximadamente
+# el 90 % de los grupos de cada tipo. Súbelo si ves ruido, bájalo si ves pocos eventos.
+#
+# Actores exigidos (el segundo filtro contra el ruido):
+#   "armados"        al menos un actor militar, rebelde, insurgente, policial, gubernamental o un grupo conocido
+#   "estatal"        al menos un actor gubernamental, militar o policial
+#   "internacional"  dos actores de países distintos y al menos uno gubernamental (diplomacia de verdad)
+#   "humanitario"    al menos una ONG, organismo internacional, gobierno o actor de refugiados
+#   None             sin requisito (protestas: los manifestantes suelen ser actores genéricos)
 CATEGORIAS = {
-    "04": ("politica", 1, "Reuniones diplomáticas", 25),
-    "05": ("politica", 1, "Acuerdos diplomáticos", 20),
-    "06": ("politica", 1, "Cooperación económica o militar", 20),
-    "07": ("humanitaria", 1, "Ayuda humanitaria", 8),
-    "13": ("politica", 1, "Amenazas", 15),
-    "15": ("politica", 2, "Movilización militar", 8),
-    "16": ("politica", 1, "Ruptura de relaciones o sanciones", 12),
-    "17": ("politica", 2, "Represión y detenciones", 10),
-    "14": ("protesta", 1, "Protestas", 6),
-    "18": ("conflicto", 2, "Ataques", 6),
-    "19": ("conflicto", 2, "Combates", 5),
-    "20": ("conflicto", 3, "Violencia masiva", 4),
+    "04": ("politica", 1, "Reuniones diplomáticas", 50, "internacional"),
+    "05": ("politica", 1, "Acuerdos diplomáticos", 35, "internacional"),
+    "06": ("politica", 1, "Cooperación económica o militar", 25, "internacional"),
+    "07": ("humanitaria", 1, "Ayuda humanitaria", 20, "humanitario"),
+    "13": ("politica", 1, "Amenazas", 25, "estatal"),
+    "15": ("politica", 2, "Movilización militar", 15, "armados"),
+    "16": ("politica", 1, "Ruptura de relaciones o sanciones", 20, "internacional"),
+    "17": ("politica", 1, "Represión y detenciones", 30, "estatal"),
+    "14": ("protesta", 1, "Protestas", 15, None),
+    "18": ("conflicto", 2, "Ataques", 12, "armados"),
+    "19": ("conflicto", 2, "Combates", 15, "armados"),
+    "20": ("conflicto", 3, "Violencia masiva", 6, "armados"),
 }
+
+ROLES_ARMADOS = {"MIL", "REB", "INS", "SEP", "UAF", "COP", "SPY", "GOV"}
+ROLES_ESTATALES = {"GOV", "MIL", "COP", "JUD", "SPY"}
+ROLES_HUMANITARIOS = {"NGO", "IGO", "REF", "GOV", "HLH", "UAF"}
+
+
+def _roles(r, cols):
+    return {r[c][:3] for c in cols if r[c]}
+
+
+def actores_validos(r, requisito):
+    if requisito is None:
+        return True
+    roles = _roles(r, C_ROL1) | _roles(r, C_ROL2)
+    if requisito == "armados":
+        return bool(roles & ROLES_ARMADOS) or bool(r[C_GRUPO1] or r[C_GRUPO2])
+    if requisito == "estatal":
+        return bool(roles & ROLES_ESTATALES)
+    if requisito == "humanitario":
+        return bool(roles & ROLES_HUMANITARIOS) or bool(r[C_GRUPO1] or r[C_GRUPO2])
+    if requisito == "internacional":
+        p1, p2 = r[C_PAIS1], r[C_PAIS2]
+        return bool(p1 and p2 and p1 != p2 and roles & {"GOV", "MIL", "IGO"})
+    return True
+
 
 # Algunos códigos concretos dentro de esas familias, para afinar el título
 SUBCODIGOS = {
@@ -145,6 +183,8 @@ def procesar_fila(r, grupos):
     root = r[C_ROOT].zfill(2)
     if root not in CATEGORIAS:
         return
+    if not actores_validos(r, CATEGORIAS[root][4]):
+        return
     # 1 = solo país (cae en el centro del país, poco útil). 2-5 = región o ciudad.
     if r[C_GEO_TIPO] not in ("2", "3", "4", "5"):
         return
@@ -216,14 +256,21 @@ def leer_titular(url):
 
 
 def gravedad(g):
-    tipo, base, _, minimo = CATEGORIAS[g["root"]]
-    sube = 1 if g["articulos"] >= minimo * 6 else 0
-    sube += 1 if g["articulos"] >= minimo * 20 else 0
-    return min(3, base + sube)
+    """
+    1 = baja, 2 = media, 3 = grave. Solo los sucesos violentos pueden llegar a "grave",
+    y solo si tienen muchísima cobertura. El resto sube como mucho a "media".
+    """
+    tipo, base, _, minimo, _ = CATEGORIAS[g["root"]]
+    art = g["articulos"]
+    if tipo == "conflicto":
+        if g["root"] == "20":
+            return 3 if art >= minimo * 3 else 2
+        return 3 if art >= minimo * 8 else 2
+    return min(2, base + (1 if art >= minimo * 5 else 0))
 
 
 def a_evento(clave, g):
-    tipo, _, nombre, minimo = CATEGORIAS[g["root"]]
+    tipo, _, nombre, minimo, _ = CATEGORIAS[g["root"]]
     codigo = max(g["codigos"], key=g["codigos"].get) if g["codigos"] else ""
     titulo_tipo = SUBCODIGOS.get(codigo) or SUBCODIGOS.get(codigo[:3]) or nombre
     lugar = lugar_gdelt(g["nombre"])

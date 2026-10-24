@@ -68,9 +68,13 @@ GDELT detecta miles de sucesos cada hora y es muy ruidoso. El recolector:
 
 1. Usa solo los tipos que interesan (códigos CAMEO): combates, ataques, violencia masiva, protestas, amenazas, movilización militar, sanciones, represión, diplomacia y ayuda humanitaria.
 2. Descarta los sucesos situados solo a nivel de país.
-3. Agrupa los del mismo tipo, lugar y día en un único evento.
-4. Muestra solo los grupos con suficientes artículos detrás (el mínimo de cada tipo está en `CATEGORIAS`, en `scripts/gdelt.py`). Si ves demasiado ruido, sube esos números; si ves pocos eventos, bájalos.
-5. Lee el titular real de la noticia más difundida de cada grupo.
+3. Exige actores coherentes con el tipo de suceso: un combate necesita un actor armado (ejército, rebeldes, policía, gobierno o un grupo conocido); una reunión diplomática, dos países distintos con al menos un gobierno; la ayuda humanitaria, una ONG, un organismo internacional o un gobierno. Así se descartan noticias mal clasificadas.
+4. Agrupa los del mismo tipo, lugar y día en un único evento.
+5. Muestra solo los grupos con suficientes artículos detrás (el mínimo de cada tipo está en `CATEGORIAS`, en `scripts/gdelt.py`). Si ves demasiado ruido, sube esos números; si ves pocos eventos, bájalos.
+6. Lee el titular real de la noticia más difundida de cada grupo y lo traduce al español.
+7. Solo los sucesos violentos con muchísima cobertura llegan a gravedad máxima.
+
+Si cambias los filtros y quieres que se apliquen también a lo ya acumulado, vacía `data/estado_gdelt.json` (deja `{"ultimo":null,"grupos":{}}`): en la siguiente ejecución se recargan las últimas 6 horas.
 
 Para añadir otra fuente basta con escribir otra función `recolectar_xxx()` que devuelva eventos con este formato y añadirla a la lista de `main()`.
 
